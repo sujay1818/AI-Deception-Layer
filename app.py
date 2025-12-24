@@ -2,6 +2,9 @@
 from flask import Flask, request, jsonify, make_response
 from logger import log_event
 from deception_stub import generate_deception
+from detection import DetectionPipeline
+pipeline = DetectionPipeline()
+
 
 app = Flask(__name__)
 
@@ -16,7 +19,8 @@ def capture_request():
         "body": request.get_json(silent=True),
         "user_agent": request.headers.get("User-Agent")
     }
-    log_event(event_data)
+    event = log_event(event_data)
+    pipeline.process_event(event)
 
 
 @app.route("/")
