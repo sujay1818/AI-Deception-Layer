@@ -27,7 +27,9 @@ def index():
 def login():
     context = {
         "path": "/login",
-        "method": request.method
+        "method": request.method,
+        "ip": request.remote_addr,
+        "user_agent": request.headers.get("User-Agent")
     }
     deception = generate_deception(context)
     return jsonify(deception["content"]), deception["status_code"]
@@ -36,7 +38,9 @@ def login():
 def admin():
     context = {
         "path": "/admin",
-        "method": request.method
+        "method": request.method,
+        "ip": request.remote_addr,
+        "user_agent": request.headers.get("User-Agent")
     }
     deception = generate_deception(context)
     return make_response(deception["content"], deception["status_code"])
