@@ -4,13 +4,15 @@ from flask import Flask, request, jsonify, make_response, g
 from logger import log_event, log_deception, upsert_session
 from deception_engine import generate_deception  # <-- use updated engine module
 
+
 # Person 3 pipeline
-from detection import DetectionPipeline
+from detection import DetectionPipeline, detection_bp, init_api
 
 app = Flask(__name__)
 
 PIPELINE = DetectionPipeline()
-
+init_api(PIPELINE)
+app.register_blueprint(detection_bp)
 
 def _session_id() -> str:
     return f"{request.remote_addr}|{request.headers.get('User-Agent','')}"
