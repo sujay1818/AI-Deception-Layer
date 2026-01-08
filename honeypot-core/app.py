@@ -2,14 +2,13 @@
 from flask import Flask, request, jsonify, make_response, g
 
 from logger import log_event, log_deception, upsert_session
-from deception_stub import generate_deception
+from deception_engine import generate_deception  # <-- use updated engine module
 
 # Person 3 pipeline
 from detection import DetectionPipeline
 
 app = Flask(__name__)
 
-# Global in-memory detection pipeline (Person 3)
 PIPELINE = DetectionPipeline()
 
 
@@ -19,11 +18,6 @@ def _session_id() -> str:
 
 @app.before_request
 def capture_request():
-    """
-    Log raw request telemetry exactly ONCE per request.
-    Store the created event in flask.g so we can score it later in after_request
-    (after login/admin has generated an AI risk_score).
-    """
     event_data = {
         "ip": request.remote_addr,
         "method": request.method,
@@ -35,32 +29,24 @@ def capture_request():
         "session_id": _session_id(),
     }
 
-    # 1) Log raw request telemetry
     event = log_event(event_data)
 
-    # 2) Update per-attacker session summary (dashboard)
     upsert_session(event_data["session_id"], {
         "ip": event_data["ip"],
         "user_agent": event_data["user_agent"],
     })
 
-    # 3) Save for scoring in after_request (avoid double counting)
     g.current_event = event
-    g.ai_risk_score = None  # set later by /login or /admin if applicable
+    g.ai_risk_score = None
 
 
 @app.after_request
 def score_request(response):
-    """
-    Person 3 scoring/alerting should happen exactly ONCE per request.
-    We do it here so /login and /admin can attach ai_risk_score before scoring.
-    """
     try:
         event = getattr(g, "current_event", None)
         if event is not None:
             PIPELINE.process_event(event, ai_risk_score=getattr(g, "ai_risk_score", None))
     except Exception as e:
-        # Don't break the honeypot if scoring fails
         print(f"[DETECTION_PIPELINE_ERROR] {e}")
 
     return response
@@ -71,10 +57,9 @@ def index():
     return "<h1>Welcome</h1><p>Service running.</p>"
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    context = {
-        "path": "/login",
+def _build_current_request(path_override: str | None = None) -> dict:
+    return {
+        "path": path_override or request.path,
         "method": request.method,
         "ip": request.remote_addr,
         "user_agent": request.headers.get("User-Agent"),
@@ -83,79 +68,79 @@ def login():
         "session_id": _session_id(),
     }
 
-    deception = generate_deception(context)
 
-    # Make AI risk score available for Person 3 scoring in after_request
+def _serve_deception(deception: dict):
+    fr = deception["fake_response"]
+    status_code = int(fr["status_code"])
+    content_type = fr["content_type"]
+    body = fr["body"]
+
+    # JSON body
+    if content_type == "application/json":
+        return jsonify(body), status_code
+
+    # HTML body
+    resp = make_response(body, status_code)
+    resp.headers["Content-Type"] = f"{content_type}; charset=utf-8"
+    return resp
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    current_req = _build_current_request("/login")
+
+    # If you have a way to fetch recent events for this session_id, pass them here.
+    recent_events = []
+
+    deception = generate_deception(recent_events, current_req)
+
     g.ai_risk_score = deception.get("risk_score")
 
-    # Log deception internally for dashboard/alerts
     log_deception({
-        "session_id": context["session_id"],
+        "session_id": current_req["session_id"],
         "path": "/login",
         "method": request.method,
-        "ip": context["ip"],
-        "user_agent": context["user_agent"],
+        "ip": current_req["ip"],
+        "user_agent": current_req["user_agent"],
         "risk_score": deception.get("risk_score"),
         "fake_logs": deception.get("fake_logs"),
         "fake_creds": deception.get("fake_creds"),
         "suggested_endpoints": deception.get("suggested_endpoints"),
-        "deception_id": deception.get("deception_id"),
         "served_response": {
-            "status_code": int(deception.get("status_code", 401)),
-            "content": deception.get("content"),
+            "status_code": int(deception["fake_response"]["status_code"]),
+            "content_type": deception["fake_response"]["content_type"],
         },
     })
 
-    return jsonify(deception["content"]), int(deception["status_code"])
+    return _serve_deception(deception)
 
 
 @app.route("/admin", methods=["GET"])
 def admin():
-    context = {
-        "path": "/admin",
-        "method": request.method,
-        "ip": request.remote_addr,
-        "user_agent": request.headers.get("User-Agent"),
-        "headers": dict(request.headers),
-        "body": request.get_json(silent=True),
-        "session_id": _session_id(),
-    }
+    current_req = _build_current_request("/admin")
+    recent_events = []
 
-    deception = generate_deception(context)
+    deception = generate_deception(recent_events, current_req)
 
-    # Make AI risk score available for Person 3 scoring in after_request
     g.ai_risk_score = deception.get("risk_score")
 
-    # Log deception internally
     log_deception({
-        "session_id": context["session_id"],
+        "session_id": current_req["session_id"],
         "path": "/admin",
         "method": request.method,
-        "ip": context["ip"],
-        "user_agent": context["user_agent"],
+        "ip": current_req["ip"],
+        "user_agent": current_req["user_agent"],
         "risk_score": deception.get("risk_score"),
         "fake_logs": deception.get("fake_logs"),
         "fake_creds": deception.get("fake_creds"),
         "suggested_endpoints": deception.get("suggested_endpoints"),
-        "deception_id": deception.get("deception_id"),
         "served_response": {
-            "status_code": int(deception.get("status_code", 403)),
-            "content": deception.get("content"),
+            "status_code": int(deception["fake_response"]["status_code"]),
+            "content_type": deception["fake_response"]["content_type"],
         },
     })
 
-    # resp = make_response(deception["content"], int(deception["status_code"]))
-    # resp.headers["Content-Type"] = "text/html; charset=utf-8"
-    # return resp
-    content = deception["content"]
-    code = int(deception["status_code"])
-
-    if isinstance(content, dict):
-        return jsonify(content), code   # JSON fallback
-    else:
-        resp = make_response(content, code)
-        resp.headers["Content-Type"] = "text/html; charset=utf-8"
-        return resp
+    return _serve_deception(deception)
 
 
 # ---- Optional demo endpoints ----
@@ -190,6 +175,7 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
+
 
 
 

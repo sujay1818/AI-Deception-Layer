@@ -35,7 +35,7 @@ def init_db() -> bool:
     if _client is not None:
         return True
 
-    uri = ""
+    uri = os.getenv("COSMOS_MONGO_URI")
     if not uri:
         print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
         return False
@@ -116,22 +116,27 @@ def log_deception(deception_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def upsert_session(session_id: str, update: Dict[str, Any]) -> None:
-    """
-    Keep one doc per attacker session (for dashboards).
-    """
     init_db()
     if _sessions is None:
         return
+
+    now = _utc_now_iso()
 
     try:
         _sessions.update_one(
             {"session_id": session_id},
             {
-                "$set": {**update, "last_seen": _utc_now_iso()},
-                "$setOnInsert": {"session_id": session_id, "first_seen": _utc_now_iso(), "total_requests": 0},
+                "$set": {**(update or {}), "last_seen": now},
+                "$setOnInsert": {
+                    "session_id": session_id,
+                    "first_seen": now,
+                    "max_risk": 0
+                },
                 "$inc": {"total_requests": 1},
             },
             upsert=True,
         )
+        print(f"[logger] upsert_session ok session_id={session_id}")
     except errors.PyMongoError as e:
         print(f"[logger] upsert session failed: {e}")
+
