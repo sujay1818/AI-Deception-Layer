@@ -46,24 +46,22 @@ export default function Alerts() {
   if (err) return <Paper sx={{ p: 2 }}>Error: {err}</Paper>;
 
   return (
-    <Box>
-      <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
-        <FormControl size="small">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <MenuItem value="OPEN">OPEN</MenuItem>
-            <MenuItem value="ACK">ACK</MenuItem>
-            <MenuItem value="CLOSED">CLOSED</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
+    
 
-      <DataTable
-        title="Alerts"
-        subtitle="High-signal activity requiring attention"
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.alert_id || r.timestamp || Math.random()}
-      />
-    </Box>
+      <Box sx={{ 
+        width: "100%", // Fixed from "full"
+        height: "100%", 
+        display: "flex", 
+        flexDirection: "column", 
+        minHeight: 0 
+      }}>
+        <DataTable
+          title="Alerts"
+          subtitle="High-signal activity requiring attention"
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.alert_id || r.timestamp || Math.random()}
+        />
+      </Box>
   );
 }

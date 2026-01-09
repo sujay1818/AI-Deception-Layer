@@ -47,21 +47,16 @@ export default function Sessions() {
   ];
 
   return (
-    <Box>
-      <TextField
-        fullWidth
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search session, IP, UA, level…"
-        sx={{ mb: 2 }}
-      />
-      <DataTable
-        title="Sessions"
-        subtitle="Sorted by latest activity"
-        columns={columns}
-        rows={filtered}
-        rowKey={(r) => r.session_id}
-      />
+    <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        <DataTable
+          title="Sessions"
+          subtitle="Sorted by latest activity"
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r.session_id}
+        />
+      </Box>
     </Box>
   );
 }
