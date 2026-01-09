@@ -1,5 +1,5 @@
 import React from "react";
-import { AppBar, Toolbar, Typography, Box, Button, Container } from "@mui/material";
+import { AppBar, Toolbar, Typography, Box, Button } from "@mui/material";
 import { Link, useLocation } from "react-router-dom";
 
 function NavBtn({ to, label }) {
@@ -36,7 +36,7 @@ export default function AppLayout({ children }) {
       }}
     >
       <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: "blur(10px)" }}>
-        <Toolbar sx={{ gap: 2 }}>
+        <Toolbar sx={{ gap: 2, px: { xs: 2, sm: 3, md: 4 } }}>
           <Typography variant="h6" sx={{ fontWeight: 900 }}>
             Honeypot SOC Dashboard
           </Typography>
@@ -47,9 +47,9 @@ export default function AppLayout({ children }) {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Box sx={{ width: "100%", height: "calc(100vh - 64px)", display: "flex", flexDirection: "column", px: { xs: 2, sm: 3, md: 4 }, py: 2 }}>
         {children}
-      </Container>
+      </Box>
     </Box>
   );
 }
