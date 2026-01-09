@@ -30,47 +30,6 @@ def _utc_now_iso() -> str:
 
 
 
-def init_db() -> bool:
-    """
-    Initialize Cosmos(Mongo) connection once.
-    Call this on app startup (or first log) safely.
-    Returns True if DB is ready, else False.
-    """
-    global _client, _db, _events, _deceptions, _sessions, _users
-
-    if _client is not None:
-        return True
-
-    uri = ""
-    if not uri:
-        print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
-        return False
-
-    try:
-        _client = MongoClient(uri, serverSelectionTimeoutMS=4000)
-        _client.admin.command("ping")
-
-        _db = _client["honeypot"]
-        _events = _db["events"]
-        _deceptions = _db["deceptions"]
-        _sessions = _db["sessions"]
-        _users = _db["users"]
-
-        # Helpful indexes (safe to call repeatedly)
-        _events.create_index("timestamp")
-        _events.create_index("session_id")
-        _deceptions.create_index("timestamp")
-        _deceptions.create_index("session_id")
-        _sessions.create_index("session_id", unique=True)
-        _users.create_index("username", unique=True)
-
-        print("[logger] Connected to Cosmos DB (Mongo).")
-        return True
-
-    except Exception as e:
-        print(f"[logger] DB init failed: {e}. Logging will be in-memory only.")
-        _client = None
-        return False
 
 
 def log_event(event_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -242,12 +201,21 @@ def _risk_level(risk: int) -> str:
     return "LOW"
 
 def init_db() -> bool:
+    """
+    Initialize Cosmos(Mongo) connection once.
+    Call this on app startup (or first log) safely.
+    Returns True if DB is ready, else False.
+    """
     global _client, _db, _events, _deceptions, _sessions, _users, _alerts
 
     if _client is not None:
         return True
 
+    # Try environment variable first, fallback to hardcoded URI
     uri = os.getenv("COSMOS_MONGO_URI")
+    if not uri:
+        uri = "mongodb+srv://cvk:Deception!@hp1.global.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+    
     if not uri:
         print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
         return False
@@ -261,20 +229,17 @@ def init_db() -> bool:
         _deceptions = _db["deceptions"]
         _sessions = _db["sessions"]
         _users = _db["users"]
-        _alerts = _db["alerts"]  # NEW
+        _alerts = _db["alerts"]
 
+        # Helpful indexes (safe to call repeatedly)
         _events.create_index("timestamp")
         _events.create_index("session_id")
-
         _deceptions.create_index("timestamp")
         _deceptions.create_index("session_id")
-
         _sessions.create_index("session_id", unique=True)
         _sessions.create_index("max_risk")
         _sessions.create_index("last_seen")
-
         _users.create_index("username", unique=True)
-
         _alerts.create_index("timestamp")
         _alerts.create_index("status")
         _alerts.create_index("severity")
@@ -282,6 +247,7 @@ def init_db() -> bool:
 
         print("[logger] Connected to Cosmos DB (Mongo).")
         return True
+
     except Exception as e:
         print(f"[logger] DB init failed: {e}. Logging will be in-memory only.")
         _client = None
@@ -384,7 +350,8 @@ def create_alert(
     }
 
     try:
-        _alerts.insert_one(doc)
+        result = _alerts.insert_one(doc)
+        print(f"[logger] create_alert success: alert_id={doc['alert_id']}, inserted_id={result.inserted_id}")
     except errors.PyMongoError as e:
         print(f"[logger] create_alert failed: {e}")
 
@@ -432,9 +399,16 @@ def get_session(session_id: str) -> Optional[Dict[str, Any]]:
 def list_alerts(status: str = "OPEN", limit: int = 200) -> List[Dict[str, Any]]:
     init_db()
     if _alerts is None:
+        print("[logger] list_alerts: _alerts is None, DB not initialized")
         return []
     q = {"status": status} if status else {}
-    return list(_alerts.find(q, {"_id": 0}).sort("timestamp", -1).limit(int(limit)))
+    try:
+        alerts = list(_alerts.find(q, {"_id": 0}).sort("timestamp", -1).limit(int(limit)))
+        print(f"[logger] list_alerts: found {len(alerts)} alerts with query {q}")
+        return alerts
+    except Exception as e:
+        print(f"[logger] list_alerts error: {e}")
+        return []
 
 
 def list_events(session_id: str, limit: int = 50) -> List[Dict[str, Any]]:

@@ -22,6 +22,7 @@ export default function Overview() {
   useEffect(() => {
     api.overview().then(setData).catch(e => setErr(String(e)));
   }, []);
+  console.log(setData);
 
   if (err) return <Paper sx={{ p: 2 }}>Error: {err}</Paper>;
   if (!data) return <Paper sx={{ p: 2 }}>Loading…</Paper>;

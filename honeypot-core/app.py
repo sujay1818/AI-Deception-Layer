@@ -290,10 +290,27 @@ def api_session_detail():
 def api_alerts():
     status = request.args.get("status", "OPEN")  # OPEN/ACK/CLOSED or empty for all
     limit = int(request.args.get("limit", 200))
-    return jsonify({"alerts": list_alerts(status=status if status else "", limit=limit)})
+    alerts = list_alerts(status=status if status else "", limit=limit)
+    return jsonify({"alerts": alerts})
 
 
-
+@app.route("/dashboard/api/alerts/test", methods=["POST"])
+def api_create_test_alert():
+    """Create a test alert for debugging"""
+    from logger import create_alert
+    import uuid
+    
+    test_session_id = f"test-{uuid.uuid4().hex[:8]}"
+    create_alert(
+        session_id=test_session_id,
+        ip="127.0.0.1",
+        user_agent="Test-Agent/1.0",
+        severity="HIGH",
+        alert_type="test",
+        reason="Test alert created for debugging",
+        risk=75,
+    )
+    return jsonify({"status": "ok", "message": "Test alert created", "session_id": test_session_id})
 
 
 # ---- Optional demo endpoints ----
