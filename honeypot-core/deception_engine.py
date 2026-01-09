@@ -162,10 +162,10 @@ def _get_llm() -> Optional[AzureChatOpenAI]:
     if _LLM is not None:
         return _LLM
 
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+    api_key = ""
+    endpoint=""
+    deployment = ""
+    api_version =""
 
     if not (api_key and endpoint and deployment):
         return None

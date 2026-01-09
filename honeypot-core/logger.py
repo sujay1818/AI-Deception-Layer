@@ -1,13 +1,17 @@
 # logger.py
-# logger.py
 from __future__ import annotations
 
 import os
 import uuid
 from datetime import datetime, timezone
+import hashlib
 from typing import Any, Dict, Optional
+from passlib.hash import pbkdf2_sha256
 
 from pymongo import MongoClient, errors
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Optional: keep last N events in memory (useful for debugging)
 EVENT_LOGS = []
@@ -18,52 +22,14 @@ _db = None
 _events = None
 _deceptions = None
 _sessions = None
+_users = None  # valid credentials collection
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def init_db() -> bool:
-    """
-    Initialize Cosmos(Mongo) connection once.
-    Call this on app startup (or first log) safely.
-    Returns True if DB is ready, else False.
-    """
-    global _client, _db, _events, _deceptions, _sessions
 
-    if _client is not None:
-        return True
-
-    uri = os.getenv("COSMOS_MONGO_URI")
-    if not uri:
-        print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
-        return False
-
-    try:
-        _client = MongoClient(uri, serverSelectionTimeoutMS=4000)
-        # quick connectivity check
-        _client.admin.command("ping")
-
-        _db = _client["honeypot"]
-        _events = _db["events"]
-        _deceptions = _db["deceptions"]
-        _sessions = _db["sessions"]
-
-        # Helpful indexes (safe to call repeatedly)
-        _events.create_index("timestamp")
-        _events.create_index("session_id")
-        _deceptions.create_index("timestamp")
-        _deceptions.create_index("session_id")
-        _sessions.create_index("session_id", unique=True)
-
-        print("[logger] Connected to Cosmos DB (Mongo).")
-        return True
-
-    except Exception as e:
-        print(f"[logger] DB init failed: {e}. Logging will be in-memory only.")
-        _client = None
-        return False
 
 
 def log_event(event_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,6 +58,7 @@ def log_event(event_dict: Dict[str, Any]) -> Dict[str, Any]:
             print(f"[logger] insert event failed: {e}")
 
     return event
+
 
 
 def log_deception(deception_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -130,7 +97,7 @@ def upsert_session(session_id: str, update: Dict[str, Any]) -> None:
                 "$setOnInsert": {
                     "session_id": session_id,
                     "first_seen": now,
-                    "max_risk": 0
+                    "max_risk": 0,
                 },
                 "$inc": {"total_requests": 1},
             },
@@ -139,4 +106,321 @@ def upsert_session(session_id: str, update: Dict[str, Any]) -> None:
         print(f"[logger] upsert_session ok session_id={session_id}")
     except errors.PyMongoError as e:
         print(f"[logger] upsert session failed: {e}")
+def update_session_max_risk(session_id: str, risk: int) -> None:
+    init_db()
+    if _sessions is None:
+        return
+
+    try:
+        _sessions.update_one(
+            {"session_id": session_id},
+            {"$max": {"max_risk": int(risk)}},
+        )
+    except errors.PyMongoError as e:
+        print(f"[logger] update max_risk failed: {e}")
+
+
+# ----------------------------
+# Valid credentials store (MongoDB)
+# ----------------------------
+
+def _normalize_password(password: Any) -> str:
+    if password is None:
+        password = ""
+    if not isinstance(password, str):
+        password = str(password)
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def upsert_user(username: str, password_plain: Any, role: str = "user", is_active: bool = True) -> None:
+    init_db()
+    if _users is None:
+        print("[logger] users collection unavailable (no DB).")
+        return
+
+    now = _utc_now_iso()
+    pw_norm = _normalize_password(password_plain)      # str
+    pw_hash = pbkdf2_sha256.hash(pw_norm)              # str hash
+
+    _users.update_one(
+        {"username": username},
+        {"$set": {
+            "username": username,
+            "password_hash": pw_hash,
+            "role": role,
+            "is_active": bool(is_active),
+            "updated_at": now,
+        }, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+
+
+def check_credentials(username: str, password_plain: Any) -> bool:
+    init_db()
+    if _users is None:
+        return False
+
+    doc = _users.find_one({"username": username}, {"password_hash": 1, "is_active": 1})
+    if not doc or not doc.get("is_active", True):
+        return False
+
+    pw_hash = doc.get("password_hash")
+    if not isinstance(pw_hash, str) or not pw_hash:
+        return False
+
+    pw_norm = _normalize_password(password_plain)      # str
+    return pbkdf2_sha256.verify(pw_norm, pw_hash)
+
+
+def user_exists(username: str) -> bool:
+    init_db()
+    if _users is None:
+        return False
+    return _users.find_one({"username": username}, {"_id": 1}) is not None
+
+
+def get_user_role(username: str) -> Optional[str]:
+    init_db()
+    if _users is None:
+        return None
+    doc = _users.find_one({"username": username}, {"role": 1})
+    return doc.get("role") if doc else None
+
+import uuid
+from typing import List
+
+_alerts = None  # NEW
+
+def _risk_level(risk: int) -> str:
+    if risk >= 80:
+        return "CRITICAL"
+    if risk >= 60:
+        return "HIGH"
+    if risk >= 40:
+        return "MED"
+    return "LOW"
+
+def init_db() -> bool:
+    """
+    Initialize Cosmos(Mongo) connection once.
+    Call this on app startup (or first log) safely.
+    Returns True if DB is ready, else False.
+    """
+    global _client, _db, _events, _deceptions, _sessions, _users, _alerts
+
+    if _client is not None:
+        return True
+
+    # Try environment variable first, fallback to hardcoded URI
+    uri = os.getenv("COSMOS_MONGO_URI")
+    if not uri:
+        uri = "mongodb+srv://cvk:Deception!@hp1.global.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+    
+    if not uri:
+        print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
+        return False
+
+    try:
+        _client = MongoClient(uri, serverSelectionTimeoutMS=4000)
+        _client.admin.command("ping")
+
+        _db = _client["honeypot"]
+        _events = _db["events"]
+        _deceptions = _db["deceptions"]
+        _sessions = _db["sessions"]
+        _users = _db["users"]
+        _alerts = _db["alerts"]
+
+        # Helpful indexes (safe to call repeatedly)
+        _events.create_index("timestamp")
+        _events.create_index("session_id")
+        _deceptions.create_index("timestamp")
+        _deceptions.create_index("session_id")
+        _sessions.create_index("session_id", unique=True)
+        _sessions.create_index("max_risk")
+        _sessions.create_index("last_seen")
+        _users.create_index("username", unique=True)
+        _alerts.create_index("timestamp")
+        _alerts.create_index("status")
+        _alerts.create_index("severity")
+        _alerts.create_index("session_id")
+
+        print("[logger] Connected to Cosmos DB (Mongo).")
+        return True
+
+    except Exception as e:
+        print(f"[logger] DB init failed: {e}. Logging will be in-memory only.")
+        _client = None
+        return False
+
+
+def record_session_activity(
+    session_id: str,
+    *,
+    ip: str,
+    user_agent: str,
+    path: str,
+    method: str,
+    status_code: int,
+    risk: int,
+    flags: List[str] | None = None,
+    counters_inc: Dict[str, int] | None = None,
+) -> None:
+    """
+    Keeps sessions collection dashboard-ready:
+    - last request info
+    - max risk + last risk + risk_level
+    - flags (deduped)
+    - counters
+    """
+    init_db()
+    if _sessions is None:
+        return
+
+    now = _utc_now_iso()
+    risk = int(risk)
+
+    update_doc: Dict[str, Any] = {
+        "$set": {
+            "ip": ip,
+            "user_agent": user_agent,
+            "last_seen": now,
+            "last_path": path,
+            "last_method": method,
+            "last_status": int(status_code),
+            "last_risk": risk,
+            "risk_level": _risk_level(risk),
+        },
+        "$max": {"max_risk": risk},
+        "$setOnInsert": {
+            "session_id": session_id,
+            "first_seen": now,
+            "max_risk": 0,
+            "total_requests": 0,
+            "flags": [],
+            "risk_level": "LOW",
+            "last_risk": 0,
+            "login_attempts": 0,
+            "admin_hits": 0,
+            "sensitive_hits": 0,
+            "known_user_attempts": 0,
+            "unknown_user_attempts": 0,
+            "valid_cred_attempts": 0,
+        },
+        "$inc": {"total_requests": 1},
+    }
+
+    if counters_inc:
+        update_doc["$inc"].update({k: int(v) for k, v in counters_inc.items()})
+
+    if flags:
+        update_doc["$addToSet"] = {"flags": {"$each": list(flags)}}
+
+    try:
+        _sessions.update_one({"session_id": session_id}, update_doc, upsert=True)
+    except errors.PyMongoError as e:
+        print(f"[logger] record_session_activity failed: {e}")
+
+
+def create_alert(
+    session_id: str,
+    ip: str,
+    user_agent: str,
+    *,
+    severity: str,
+    alert_type: str,
+    reason: str,
+    risk: int,
+) -> None:
+    init_db()
+    if _alerts is None:
+        return
+
+    doc = {
+        "alert_id": str(uuid.uuid4()),
+        "timestamp": _utc_now_iso(),
+        "session_id": session_id,
+        "ip": ip,
+        "user_agent": user_agent,
+        "severity": severity,     # HIGH/CRITICAL
+        "type": alert_type,       # valid_creds/admin_probe/bruteforce
+        "reason": reason,
+        "risk": int(risk),
+        "status": "OPEN",         # OPEN/ACK/CLOSED
+    }
+
+    try:
+        result = _alerts.insert_one(doc)
+        print(f"[logger] create_alert success: alert_id={doc['alert_id']}, inserted_id={result.inserted_id}")
+    except errors.PyMongoError as e:
+        print(f"[logger] create_alert failed: {e}")
+
+
+# ---------- Query helpers for dashboard ----------
+
+def get_overview() -> Dict[str, Any]:
+    init_db()
+    if _sessions is None or _alerts is None:
+        return {"ok": False}
+
+    total_sessions = _sessions.count_documents({})
+    by_level = {
+        "CRITICAL": _sessions.count_documents({"risk_level": "CRITICAL"}),
+        "HIGH": _sessions.count_documents({"risk_level": "HIGH"}),
+        "MED": _sessions.count_documents({"risk_level": "MED"}),
+        "LOW": _sessions.count_documents({"risk_level": "LOW"}),
+    }
+    open_alerts = _alerts.count_documents({"status": "OPEN"})
+    top_sessions = list(_sessions.find({}, {"_id": 0}).sort("max_risk", -1).limit(5))
+
+    return {
+        "ok": True,
+        "total_sessions": total_sessions,
+        "by_level": by_level,
+        "open_alerts": open_alerts,
+        "top_sessions": top_sessions,
+    }
+
+
+def list_sessions(limit: int = 200) -> List[Dict[str, Any]]:
+    init_db()
+    if _sessions is None:
+        return []
+    return list(_sessions.find({}, {"_id": 0}).sort("last_seen", -1).limit(int(limit)))
+
+
+def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    init_db()
+    if _sessions is None:
+        return None
+    return _sessions.find_one({"session_id": session_id}, {"_id": 0})
+
+
+def list_alerts(status: str = "OPEN", limit: int = 200) -> List[Dict[str, Any]]:
+    init_db()
+    if _alerts is None:
+        print("[logger] list_alerts: _alerts is None, DB not initialized")
+        return []
+    q = {"status": status} if status else {}
+    try:
+        alerts = list(_alerts.find(q, {"_id": 0}).sort("timestamp", -1).limit(int(limit)))
+        print(f"[logger] list_alerts: found {len(alerts)} alerts with query {q}")
+        return alerts
+    except Exception as e:
+        print(f"[logger] list_alerts error: {e}")
+        return []
+
+
+def list_events(session_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    init_db()
+    if _events is None:
+        return []
+    return list(_events.find({"session_id": session_id}, {"_id": 0}).sort("timestamp", -1).limit(int(limit)))
+
+
+def list_deceptions(session_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    init_db()
+    if _deceptions is None:
+        return []
+    return list(_deceptions.find({"session_id": session_id}, {"_id": 0}).sort("timestamp", -1).limit(int(limit)))
 
