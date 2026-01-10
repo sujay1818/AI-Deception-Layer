@@ -7,7 +7,8 @@ from logger import (
 )
 
 from logger import update_session_max_risk
-
+from flask import Flask
+from flask_cors import CORS
 from deception_engine import generate_deception  # <-- use updated engine module
 
 
@@ -19,6 +20,16 @@ app = Flask(__name__)
 PIPELINE = DetectionPipeline()
 init_api(PIPELINE)
 app.register_blueprint(detection_bp)
+
+
+
+app = Flask(__name__)
+
+CORS(app, resources={r"/*": {"origins": [
+    "http://localhost:5173/dashboard",
+    "https://ai-deception-honeypot.azurewebsites.net"
+]}})
+
 
 def _session_id() -> str:
     return f"{request.remote_addr}|{request.headers.get('User-Agent','')}"

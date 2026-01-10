@@ -13,7 +13,20 @@ export default function DataTable({
   rowKey,
 }) {
   return (
-    <Paper sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <Paper
+    sx={{
+      p: 2,
+      width: "100%",
+      maxWidth: "none",        // 🔥 THIS LINE FIXES THE “HALF PAGE”
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      minHeight: 0,
+      minWidth: 0,
+      alignSelf: "stretch",    // 🔥 AND THIS
+      boxSizing: "border-box",
+    }}
+    >
       {(title || subtitle) && (
         <Box sx={{ mb: 1, flexShrink: 0 }}>
           {title && <Typography variant="h6">{title}</Typography>}
@@ -25,14 +38,18 @@ export default function DataTable({
         </Box>
       )}
 
-      <TableContainer sx={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-        <Table size="small" stickyHeader>
+      <TableContainer sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <Table size="small" stickyHeader sx={{ width: "100%" }}>
           <TableHead>
             <TableRow>
               {columns.map((c) => (
                 <TableCell
                   key={c.key}
-                  sx={{ fontWeight: 800, color: "rgba(255,255,255,0.65)", backgroundColor: "rgba(11, 18, 32, 0.8)" }}
+                  sx={{
+                    fontWeight: 800,
+                    color: "rgba(255,255,255,0.65)",
+                    backgroundColor: "rgba(11, 18, 32, 0.8)",
+                  }}
                 >
                   {c.header}
                 </TableCell>

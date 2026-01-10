@@ -48,20 +48,49 @@ export default function Alerts() {
   return (
     
 
-      <Box sx={{ 
-        width: "100%", // Fixed from "full"
-        height: "100%", 
-        display: "flex", 
-        flexDirection: "column", 
-        minHeight: 0 
-      }}>
-        <DataTable
-          title="Alerts"
-          subtitle="High-signal activity requiring attention"
-          columns={columns}
-          rows={rows}
-          rowKey={(r) => r.alert_id || r.timestamp || Math.random()}
-        />
-      </Box>
+    <Box
+    sx={{
+      width: "100%",
+      flex: 1,
+      minHeight: 0,
+      minWidth: 0,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "stretch",   // 🔥 THIS IS CRITICAL
+    }}
+  >
+    {/* Filter */}
+    <Box
+      sx={{
+        display: "flex",
+        justifyContent: "flex-end",
+        mb: 2,
+        flexShrink: 0,
+        width: "100%",
+      }}
+    >
+    </Box>
+
+    {/* Table */}
+    <Box
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        minWidth: 0,
+        display: "flex",
+        alignItems: "stretch",  // 🔥 ALSO REQUIRED
+      }}
+    >
+      <DataTable
+        title="Alerts"
+        subtitle="High-signal activity requiring attention"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) =>
+          r.alert_id || `${r.session_id}-${r.timestamp || r.created_at}`
+        }
+      />
+    </Box>
+  </Box>
   );
 }

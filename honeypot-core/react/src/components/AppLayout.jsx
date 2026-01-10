@@ -47,8 +47,33 @@ export default function AppLayout({ children }) {
         </Toolbar>
       </AppBar>
 
-      <Box sx={{ width: "100%", height: "calc(100vh - 64px)", display: "flex", flexDirection: "column", px: { xs: 2, sm: 3, md: 4 }, py: 2 }}>
-        {children}
+      <Box
+        sx={{
+          width: "100%",
+          minHeight: "calc(100vh - 64px)",
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          py: 2,
+          boxSizing: "border-box",
+        }}
+      >
+        {/* INNER WRAPPER: apply padding here, NOT on the flex host */}
+        <Box
+          sx={{
+            width: "100%",
+            flex: 1,
+            minHeight: 0,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            px: { xs: 2, sm: 3, md: 4 },
+            boxSizing: "border-box",
+          }}
+        >
+          {children}
+        </Box>
       </Box>
     </Box>
   );

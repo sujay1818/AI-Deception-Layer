@@ -214,7 +214,7 @@ def init_db() -> bool:
     # Try environment variable first, fallback to hardcoded URI
     uri = os.getenv("COSMOS_MONGO_URI")
     if not uri:
-        uri = "mongodb+srv://cvk:Deception!@hp1.global.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
+        uri = ""
     
     if not uri:
         print("[logger] COSMOS_MONGO_URI not set. Logging will be in-memory only.")
