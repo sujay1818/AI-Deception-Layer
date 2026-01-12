@@ -4,3 +4,6 @@ langchain-openai
 langchain-core
 openai
 pymongo
+gunicorn
+passlib
+python-dotenv
