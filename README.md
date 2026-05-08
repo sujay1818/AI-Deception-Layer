@@ -84,9 +84,6 @@ Traditional honeypots are often static and easily detectable by sophisticated at
 
 ---
 
-
----
-
 ## ▶️ Usage
 
 * Deploy the system on Azure
